@@ -33,6 +33,7 @@ def test_dsh_bundle_uses_a_stable_python_entrypoint() -> None:
     patch = (PROJECT_ROOT / "cordis.patch.yml").read_text(encoding="utf-8")
 
     assert "DSH_MEDIACRAWLER_PYTHON" in patch
+    assert "DSH_MEDIACRAWLER_MAX_EXPORT_MIB || '256'" in patch
     assert "? ['-m', 'dsh_mediacrawler']" in patch
     assert "failOnStartupError: true" in patch
     assert "name: dsh-mediacrawler" in patch

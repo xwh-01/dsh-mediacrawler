@@ -16,6 +16,6 @@
           MEDIACRAWLER_ROOT: !!js process.env.MEDIACRAWLER_ROOT
           MEDIACRAWLER_PYTHON: !!js process.env.MEDIACRAWLER_PYTHON
           DSH_MEDIACRAWLER_STATE_DIR: !!js process.env.DSH_MEDIACRAWLER_STATE_DIR
-          DSH_MEDIACRAWLER_MAX_EXPORT_MIB: !!js process.env.DSH_MEDIACRAWLER_MAX_EXPORT_MIB
+          DSH_MEDIACRAWLER_MAX_EXPORT_MIB: !!js process.env.DSH_MEDIACRAWLER_MAX_EXPORT_MIB || '256'
         failOnStartupError: true
         toolCallTimeoutMs: 120000
