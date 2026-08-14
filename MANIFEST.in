@@ -1,0 +1,6 @@
+include .env.example
+include README.zh.md
+include cordis.patch.yml
+include package.json
+recursive-include .dsh *.md *.yaml
+recursive-include tests *.py

@@ -4,11 +4,24 @@
   "description": "DeepSeek Harness MCP adapter for a separately installed MediaCrawler checkout",
   "type": "module",
   "license": "MIT",
+  "author": "xwh-01",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/xwh-01/dsh-mediacrawler.git"
+  },
+  "homepage": "https://github.com/xwh-01/dsh-mediacrawler#readme",
+  "bugs": {
+    "url": "https://github.com/xwh-01/dsh-mediacrawler/issues"
+  },
   "files": [
+    ".dsh",
+    ".env.example",
     "cordis.patch.yml",
     "README.md",
     "README.zh.md",
-    "LICENSE"
+    "LICENSE",
+    "pyproject.toml",
+    "src/dsh_mediacrawler/*.py"
   ],
   "keywords": [
     "dsh-plugin",

@@ -9,7 +9,8 @@ description = "DeepSeek Harness MCP adapter for MediaCrawler"
 readme = "README.md"
 requires-python = ">=3.11"
 license = "MIT"
-authors = [{ name = "dsh-mediacrawler contributors" }]
+authors = [{ name = "xwh-01" }]
+keywords = ["deepseek-harness", "dsh-plugin", "mcp", "mediacrawler"]
 dependencies = [
   "mcp>=2.0,<3",
   "psutil>=6,<8",
@@ -25,6 +26,11 @@ test = [
 [project.scripts]
 dsh-mediacrawler-mcp = "dsh_mediacrawler.server:main"
 
+[project.urls]
+Homepage = "https://github.com/xwh-01/dsh-mediacrawler"
+Repository = "https://github.com/xwh-01/dsh-mediacrawler.git"
+Issues = "https://github.com/xwh-01/dsh-mediacrawler/issues"
+
 [tool.setuptools.packages.find]
 where = ["src"]
 
@@ -32,3 +38,6 @@ where = ["src"]
 addopts = "-q"
 asyncio_mode = "auto"
 testpaths = ["tests"]
+
+[tool.ruff]
+target-version = "py311"

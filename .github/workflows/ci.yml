@@ -1,0 +1,74 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: ${{ matrix.os }} / Python ${{ matrix.python-version }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        python-version: ["3.11", "3.13"]
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+
+      - name: Set up Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+
+      - name: Install test dependencies
+        run: python -m pip install -e ".[test]"
+
+      - name: Check formatting
+        run: python -m ruff format --check .
+
+      - name: Lint
+        run: python -m ruff check .
+
+      - name: Test
+        run: python -m pytest
+
+  package:
+    name: Package artifacts
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+
+      - name: Set up Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: "3.13"
+          cache: pip
+
+      - name: Build Python distributions
+        run: |
+          python -m pip install build
+          python -m build
+
+      - name: Smoke-test the wheel
+        run: |
+          python -m pip install --force-reinstall dist/*.whl
+          python -c "import importlib.metadata; assert importlib.metadata.version('dsh-mediacrawler') == '0.1.0'"
+          command -v dsh-mediacrawler-mcp
+
+      - name: Inspect the DSH package
+        run: |
+          npm pack --dry-run --json > npm-pack.json
+          node -e "const p=require('./npm-pack.json')[0]; const bad=p.files.filter(x=>/__pycache__|\.pyc$|egg-info/.test(x.path)); if(bad.length) throw new Error(JSON.stringify(bad));"
