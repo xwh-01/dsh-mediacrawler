@@ -1,0 +1,24 @@
+{
+  "name": "dsh-mediacrawler",
+  "version": "0.1.0",
+  "description": "DeepSeek Harness MCP adapter for a separately installed MediaCrawler checkout",
+  "type": "module",
+  "license": "MIT",
+  "files": [
+    "cordis.patch.yml",
+    "README.md",
+    "README.zh.md",
+    "LICENSE"
+  ],
+  "keywords": [
+    "dsh-plugin",
+    "deepseek-harness",
+    "mcp",
+    "mediacrawler"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  }
+}

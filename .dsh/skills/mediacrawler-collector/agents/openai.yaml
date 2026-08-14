@@ -1,0 +1,4 @@
+interface:
+  display_name: "MediaCrawler Collector"
+  short_description: "Collect posts, creators, and nested comments"
+  default_prompt: "Use $mediacrawler-collector to collect social posts and comments for this topic."

@@ -1,0 +1,14 @@
+- insert:
+    - id: mcp-mediacrawler
+      name: '@deepseek-ai/dsh-mcp-client'
+      config:
+        serverName: mediacrawler
+        transport: stdio
+        command: dsh-mediacrawler-mcp
+        args: []
+        env:
+          MEDIACRAWLER_ROOT: !!js process.env.MEDIACRAWLER_ROOT
+          MEDIACRAWLER_PYTHON: !!js process.env.MEDIACRAWLER_PYTHON
+          DSH_MEDIACRAWLER_STATE_DIR: !!js process.env.DSH_MEDIACRAWLER_STATE_DIR
+        failOnStartupError: false
+        toolCallTimeoutMs: 120000
