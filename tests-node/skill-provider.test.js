@@ -26,9 +26,11 @@ test('registers the packaged MediaCrawler skill', async () => {
   assert.equal(candidates.length, 1)
   assert.equal(candidates[0].name, 'mediacrawler-collector')
   assert.equal(candidates[0].source, 'bundled')
+  assert.match(candidates[0].description, /^Use when DeepSeek Harness needs bounded/)
 
   const skill = await provider.get(candidates[0], {})
   assert.match(skill.content, /^# MediaCrawler Collector/m)
+  assert.equal(skill.description, candidates[0].description)
   assert.doesNotMatch(skill.content, /^---$/m)
   assert.equal(skill.resourceBase.kind, 'directory')
 })

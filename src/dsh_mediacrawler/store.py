@@ -61,10 +61,10 @@ class RunStore:
         run_id = str(manifest["run_id"])
         target = self.manifest_path(run_id)
         target.parent.mkdir(parents=True, exist_ok=True)
-        sanitized = redact_value(manifest)
+        redacted_manifest = redact_value(manifest)
         temp = target.with_suffix(f".json.tmp-{os.getpid()}-{uuid.uuid4().hex}")
         temp.write_text(
-            json.dumps(sanitized, ensure_ascii=False, indent=2, sort_keys=True),
+            json.dumps(redacted_manifest, ensure_ascii=False, indent=2, sort_keys=True),
             encoding="utf-8",
         )
         os.chmod(temp, 0o600)
