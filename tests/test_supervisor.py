@@ -480,6 +480,41 @@ async def test_oversized_preview_record_advances_cursor(
     ]
 
 
+@pytest.mark.asyncio
+async def test_runs_recovers_recent_run_and_result_combines_preview(
+    service: CrawlerService,
+) -> None:
+    started = await service.collect(search_request("recoverable"))
+    await wait_for_state(service, started["run_id"])
+
+    recent = await service.runs(limit=1)
+    combined = await service.result(started["run_id"], limit=1)
+
+    assert recent["returned"] == 1
+    assert recent["runs"][0]["run_id"] == started["run_id"]
+    assert recent["runs"][0]["query"] == "recoverable"
+    assert combined["outcome"] == "data_available"
+    assert combined["artifact_count"] == 1
+    assert combined["sample"]["returned"] == 1
+    assert combined["sample"]["records"][0]["title"] == "fixture record"
+
+
+@pytest.mark.asyncio
+async def test_result_can_select_record_type_and_validates_bounds(
+    service: CrawlerService,
+) -> None:
+    started = await service.collect(search_request())
+    await wait_for_state(service, started["run_id"])
+
+    missing = await service.result(started["run_id"], record_type="comments")
+    assert missing["sample"] is None
+
+    with pytest.raises(AdapterError, match="record_type must be"):
+        await service.result(started["run_id"], record_type="secrets")
+    with pytest.raises(AdapterError, match="limit must be"):
+        await service.runs(limit=0)
+
+
 def test_pid_creation_time_mismatch_is_never_terminated(
     service: CrawlerService,
 ) -> None:

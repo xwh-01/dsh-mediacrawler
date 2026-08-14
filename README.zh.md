@@ -7,7 +7,7 @@
 
 一个可安装的 profile bundle 和有明确范围限制的 stdio MCP 适配器，用于把 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 接到用户单独安装的 [MediaCrawler](https://github.com/NanmiCoder/MediaCrawler)。
 
-支持小红书、抖音、快手、B 站、微博、贴吧和知乎的搜索、帖子或视频详情、创作者主页，以及按需采集评论。每次任务都会受到进程监督、持久化记录，并通过 8 个 MCP 工具交给 Agent 使用。
+支持小红书、抖音、快手、B 站、微博、贴吧和知乎的搜索、帖子或视频详情、创作者主页，以及按需采集评论。每次任务都会受到进程监督、持久化记录，并通过 10 个 MCP 工具交给 Agent 使用。
 
 > 本项目只是适配器，不是 MediaCrawler 的分叉；它不会复制或修改 MediaCrawler 源码，也不会改变 MediaCrawler 的许可证。
 
@@ -34,7 +34,7 @@ $adapterVenv = Join-Path $HOME '.dsh\runtimes\dsh-mediacrawler'
 python -m venv $adapterVenv
 $env:DSH_MEDIACRAWLER_PYTHON = Join-Path $adapterVenv 'Scripts\python.exe'
 & $env:DSH_MEDIACRAWLER_PYTHON -m pip install --upgrade pip
-& $env:DSH_MEDIACRAWLER_PYTHON -m pip install "dsh-mediacrawler @ git+https://github.com/xwh-01/dsh-mediacrawler.git@v0.1.0"
+& $env:DSH_MEDIACRAWLER_PYTHON -m pip install "dsh-mediacrawler @ git+https://github.com/xwh-01/dsh-mediacrawler.git@v0.2.0"
 ```
 
 POSIX 系统：
@@ -43,7 +43,7 @@ POSIX 系统：
 python3 -m venv "$HOME/.dsh/runtimes/dsh-mediacrawler"
 export DSH_MEDIACRAWLER_PYTHON="$HOME/.dsh/runtimes/dsh-mediacrawler/bin/python"
 "$DSH_MEDIACRAWLER_PYTHON" -m pip install --upgrade pip
-"$DSH_MEDIACRAWLER_PYTHON" -m pip install "dsh-mediacrawler @ git+https://github.com/xwh-01/dsh-mediacrawler.git@v0.1.0"
+"$DSH_MEDIACRAWLER_PYTHON" -m pip install "dsh-mediacrawler @ git+https://github.com/xwh-01/dsh-mediacrawler.git@v0.2.0"
 ```
 
 ### 3. 安装 DSH profile bundle
@@ -52,7 +52,7 @@ DSH 会把 profile 包管理交给 `pnpm`。如有需要请先安装一次，然
 
 ```powershell
 npm install --global pnpm@11
-npx --yes @deepseek-ai/dsh@0.1.0-rc.6 plugin --profile web add "github:xwh-01/dsh-mediacrawler#v0.1.0"
+npx --yes @deepseek-ai/dsh@0.1.0-rc.6 plugin --profile web add "github:xwh-01/dsh-mediacrawler#v0.2.0"
 npx --yes @deepseek-ai/dsh@0.1.0-rc.6 --profile web --dump-config
 ```
 
@@ -91,6 +91,8 @@ npx --yes @deepseek-ai/dsh@0.1.0-rc.6 plugin --profile web remove dsh-mediacrawl
 | `check` | 检查源码路径、CLI 依赖和浏览器启动能力。 |
 | `collect` | 启动一次有明确范围限制的采集任务。 |
 | `status` | 查询生命周期、待处理用户操作和结果数量。 |
+| `runs` | 在重启或上下文丢失后找回近期持久化任务及其 ID。 |
+| `result` | 一次读取任务状态、产物列表和有界脱敏样本。 |
 | `stop` | 幂等地停止爬虫进程树。 |
 | `logs` | 增量读取经过脱敏的日志。 |
 | `artifacts` | 使用不透明 ID 列出带类型的 JSONL 产物。 |
@@ -98,6 +100,10 @@ npx --yes @deepseek-ai/dsh@0.1.0-rc.6 plugin --profile web remove dsh-mediacrawl
 | `export` | 生成脱敏 ZIP，并返回路径和校验值。 |
 
 ## 运行行为
+
+### 什么时候值得用
+
+查询即时事实或已经被索引的网页时，应优先使用 Harness 的网页搜索 provider。需要登录后的平台原始记录、创作者内容流、评论或楼中楼，或者需要可复现的持久化导出时，再使用本适配器。它补充网页搜索，而不是替代网页搜索。
 
 ### 浏览器隔离
 
@@ -136,7 +142,7 @@ CI 会在 Linux 和 Windows 上执行 Python 测试、验证随包 Skill provide
 
 ## 兼容性
 
-DeepSeek Harness 仍处于开发者预览阶段，可能出现破坏性更新。`v0.1.0` 已测试：
+DeepSeek Harness 仍处于开发者预览阶段，可能出现破坏性更新。`v0.2.0` 已测试：
 
 - `@deepseek-ai/dsh` `0.1.0-rc.6`。
 - Node.js 22.x 系列中的 22.19+，以及 Node.js 24+。

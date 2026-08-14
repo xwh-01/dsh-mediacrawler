@@ -7,7 +7,7 @@
 
 An installable profile bundle and bounded stdio MCP adapter that connects [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) to a separately installed [MediaCrawler](https://github.com/NanmiCoder/MediaCrawler) checkout.
 
-It supports search, post/video detail, creator feeds, and optional comments on Xiaohongshu, Douyin, Kuaishou, Bilibili, Weibo, Tieba, and Zhihu. Each run is supervised, persisted, and exposed through eight MCP tools.
+It supports search, post/video detail, creator feeds, and optional comments on Xiaohongshu, Douyin, Kuaishou, Bilibili, Weibo, Tieba, and Zhihu. Each run is supervised, persisted, and exposed through ten MCP tools.
 
 > This is an adapter, not a MediaCrawler fork. It does not copy or modify MediaCrawler source code, and it does not change MediaCrawler's license.
 
@@ -34,7 +34,7 @@ $adapterVenv = Join-Path $HOME '.dsh\runtimes\dsh-mediacrawler'
 python -m venv $adapterVenv
 $env:DSH_MEDIACRAWLER_PYTHON = Join-Path $adapterVenv 'Scripts\python.exe'
 & $env:DSH_MEDIACRAWLER_PYTHON -m pip install --upgrade pip
-& $env:DSH_MEDIACRAWLER_PYTHON -m pip install "dsh-mediacrawler @ git+https://github.com/xwh-01/dsh-mediacrawler.git@v0.1.0"
+& $env:DSH_MEDIACRAWLER_PYTHON -m pip install "dsh-mediacrawler @ git+https://github.com/xwh-01/dsh-mediacrawler.git@v0.2.0"
 ```
 
 On POSIX systems:
@@ -43,7 +43,7 @@ On POSIX systems:
 python3 -m venv "$HOME/.dsh/runtimes/dsh-mediacrawler"
 export DSH_MEDIACRAWLER_PYTHON="$HOME/.dsh/runtimes/dsh-mediacrawler/bin/python"
 "$DSH_MEDIACRAWLER_PYTHON" -m pip install --upgrade pip
-"$DSH_MEDIACRAWLER_PYTHON" -m pip install "dsh-mediacrawler @ git+https://github.com/xwh-01/dsh-mediacrawler.git@v0.1.0"
+"$DSH_MEDIACRAWLER_PYTHON" -m pip install "dsh-mediacrawler @ git+https://github.com/xwh-01/dsh-mediacrawler.git@v0.2.0"
 ```
 
 ### 3. Install the DSH profile bundle
@@ -52,7 +52,7 @@ DSH delegates profile package management to `pnpm`. Install it once if needed, t
 
 ```powershell
 npm install --global pnpm@11
-npx --yes @deepseek-ai/dsh@0.1.0-rc.6 plugin --profile web add "github:xwh-01/dsh-mediacrawler#v0.1.0"
+npx --yes @deepseek-ai/dsh@0.1.0-rc.6 plugin --profile web add "github:xwh-01/dsh-mediacrawler#v0.2.0"
 npx --yes @deepseek-ai/dsh@0.1.0-rc.6 --profile web --dump-config
 ```
 
@@ -91,6 +91,8 @@ DeepSeek Harness exposes these as `mcp__mediacrawler__<tool>`:
 | `check` | Check source paths, CLI dependencies, and browser launch readiness. |
 | `collect` | Start one bounded collection run. |
 | `status` | Read lifecycle state, required user attention, and result counts. |
+| `runs` | Recover recent durable runs and their IDs after a restart or context loss. |
+| `result` | Read status, artifacts, and a bounded redacted sample in one call. |
 | `stop` | Idempotently stop the crawler process tree. |
 | `logs` | Read incremental, redacted run logs. |
 | `artifacts` | List typed JSONL artifacts using opaque IDs. |
@@ -98,6 +100,10 @@ DeepSeek Harness exposes these as `mcp__mediacrawler__<tool>`:
 | `export` | Create a sanitized ZIP and return its path and checksum. |
 
 ## Runtime behavior
+
+### When this is useful
+
+Use the Harness web-search providers for quick facts and already-indexed pages. Use this adapter when the task needs logged-in platform records, creator feeds, comments or nested replies, or a durable reproducible export. It complements search providers; it is not a replacement for them.
 
 ### Browser isolation
 
@@ -136,7 +142,7 @@ CI runs the Python tests on Linux and Windows, verifies the packaged Skill provi
 
 ## Compatibility
 
-DeepSeek Harness is a developer preview and may make compatibility-breaking changes. Release `v0.1.0` is tested with:
+DeepSeek Harness is a developer preview and may make compatibility-breaking changes. Release `v0.2.0` is tested with:
 
 - `@deepseek-ai/dsh` `0.1.0-rc.6`.
 - Node.js 22.19+ on the 22.x line, and Node.js 24+.

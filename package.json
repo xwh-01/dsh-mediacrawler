@@ -1,6 +1,6 @@
 {
   "name": "dsh-mediacrawler",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Installable DeepSeek Harness profile bundle for a separately installed MediaCrawler checkout",
   "type": "module",
   "main": "./skill-provider.js",

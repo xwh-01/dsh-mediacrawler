@@ -19,12 +19,14 @@ Supported platform values are `xhs`, `dy`, `ks`, `bili`, `wb`, `tieba`, and `zhi
 
 ## Workflow
 
+If the user refers to an earlier run but no `run_id` is available in context, call `mcp__mediacrawler__runs` and identify the run from its platform, mode, query or targets, and timestamps.
+
 1. Call `mcp__mediacrawler__check`. Use `deep=true` on first use, after an upstream upgrade, or when a run fails before login.
 2. Call `mcp__mediacrawler__collect` with the smallest useful scope. Start with at most 20 items, only enable comments the request needs, and use `browser_mode=isolated`.
 3. Preserve the returned `run_id`. Tell the user when they must complete QR-code verification in the browser opened by MediaCrawler.
 4. Poll `mcp__mediacrawler__status` after the returned interval. When `phase=awaiting_user_login`, tell the user to scan the QR code in the isolated browser, then keep polling the same `run_id`. Do not start a second run while one is active.
 5. Read `mcp__mediacrawler__logs` only when login is waiting, progress appears stuck, or the run fails. Continue from `next_cursor`.
-6. When complete, call `mcp__mediacrawler__artifacts`, then preview useful files with `mcp__mediacrawler__preview`.
+6. When complete, call `mcp__mediacrawler__result` for status, artifacts, and the first useful redacted records in one response. Use its `record_type` filter when the user specifically needs comments or creator records; use `preview` only for additional pages or another artifact.
 7. Call `mcp__mediacrawler__export` when the user needs a durable sanitized ZIP.
 
 Use a stable `request_id` when retrying the same requested collection. A repeated ID with the same parameters returns the original run; changing parameters under the same ID is an error.

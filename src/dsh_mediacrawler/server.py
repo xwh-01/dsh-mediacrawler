@@ -107,6 +107,18 @@ def create_server(service: CrawlerService | None = None) -> MCPServer:
         return await call("status", run_id)
 
     @server.tool()
+    async def runs(limit: int = 20) -> dict[str, Any]:
+        """List recent durable runs so an agent can recover their run IDs."""
+        return await call("runs", limit=limit)
+
+    @server.tool()
+    async def result(
+        run_id: str, record_type: str | None = None, limit: int = 5
+    ) -> dict[str, Any]:
+        """Get run status, typed artifacts, and a bounded redacted result sample."""
+        return await call("result", run_id, record_type=record_type, limit=limit)
+
+    @server.tool()
     async def stop(run_id: str) -> dict[str, Any]:
         """Idempotently stop a running crawler process tree."""
         return await call("stop", run_id)

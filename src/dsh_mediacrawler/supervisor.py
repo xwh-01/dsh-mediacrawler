@@ -908,6 +908,82 @@ class CrawlerService:
             "poll_after_seconds": 3 if manifest["state"] in ACTIVE_STATES else None,
         }
 
+    async def runs(self, limit: int = 20) -> dict[str, Any]:
+        if not 1 <= limit <= 100:
+            raise AdapterError("INVALID_REQUEST", "limit must be between 1 and 100.")
+        manifests = await asyncio.to_thread(self.store.all_manifests)
+        summaries = []
+        for manifest in manifests[:limit]:
+            request = manifest.get("request", {})
+            summaries.append(
+                {
+                    "run_id": manifest.get("run_id"),
+                    "request_id": manifest.get("request_id"),
+                    "platform": request.get("platform"),
+                    "mode": request.get("mode"),
+                    "query": request.get("query"),
+                    "targets": request.get("targets", []),
+                    "state": manifest.get("state"),
+                    "outcome": manifest.get("outcome"),
+                    "created_at": manifest.get("created_at"),
+                    "finished_at": manifest.get("finished_at"),
+                }
+            )
+        return {"ok": True, "runs": summaries, "returned": len(summaries)}
+
+    async def result(
+        self, run_id: str, record_type: str | None = None, limit: int = 5
+    ) -> dict[str, Any]:
+        if not 1 <= limit <= 20:
+            raise AdapterError("INVALID_REQUEST", "limit must be between 1 and 20.")
+        if record_type is not None:
+            record_type = record_type.strip().lower()
+            if record_type not in {
+                "contents",
+                "comments",
+                "creators",
+                "contacts",
+                "dynamics",
+            }:
+                raise AdapterError(
+                    "INVALID_REQUEST",
+                    "record_type must be contents, comments, creators, contacts, or dynamics.",
+                )
+
+        run_status = await self.status(run_id)
+        artifact_list = await asyncio.to_thread(discover, self.store.data_dir(run_id))
+        candidates = [
+            artifact
+            for artifact in artifact_list
+            if int(artifact["records"]) > 0
+            and (record_type is None or artifact["record_type"] == record_type)
+        ]
+        priority = {
+            "contents": 0,
+            "creators": 1,
+            "comments": 2,
+            "contacts": 3,
+            "dynamics": 4,
+            "unknown": 5,
+        }
+        candidates.sort(key=lambda item: priority.get(str(item["record_type"]), 5))
+        selected = candidates[0] if candidates else None
+        sample = None
+        if selected is not None:
+            sample = await asyncio.to_thread(
+                preview_artifact,
+                self.store.data_dir(run_id),
+                selected["artifact_id"],
+                0,
+                limit,
+            )
+        return {
+            **run_status,
+            "artifacts": artifact_list,
+            "selected_record_type": record_type,
+            "sample": sample,
+        }
+
     @staticmethod
     def _detect_attention(entries: list[dict[str, Any]]) -> dict[str, Any] | None:
         attention = None

@@ -27,6 +27,8 @@ async def test_mcp_server_exposes_expected_tools(
             "check",
             "collect",
             "status",
+            "runs",
+            "result",
             "stop",
             "logs",
             "artifacts",
