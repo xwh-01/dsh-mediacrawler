@@ -1,10 +1,11 @@
 # dsh-mediacrawler
 
 [![CI](https://github.com/xwh-01/dsh-mediacrawler/actions/workflows/ci.yml/badge.svg)](https://github.com/xwh-01/dsh-mediacrawler/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/xwh-01/dsh-mediacrawler)](https://github.com/xwh-01/dsh-mediacrawler/releases/latest)
 
 [English](./README.md) | [中文](./README.zh.md)
 
-一个有明确范围限制的 stdio MCP 适配器，用于把 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 接到用户单独安装的 [MediaCrawler](https://github.com/NanmiCoder/MediaCrawler)。
+一个可安装的 profile bundle 和有明确范围限制的 stdio MCP 适配器，用于把 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 接到用户单独安装的 [MediaCrawler](https://github.com/NanmiCoder/MediaCrawler)。
 
 支持小红书、抖音、快手、B 站、微博、贴吧和知乎的搜索、帖子或视频详情、创作者主页，以及按需采集评论。每次任务都会受到进程监督、持久化记录，并通过 8 个 MCP 工具交给 Agent 使用。
 
@@ -17,30 +18,49 @@
 请先安装：
 
 - Python 3.11 或更高版本。
+- Node.js 22.x 系列中的 22.19+，或 Node.js 24+，并确保 `pnpm` 位于 `PATH`。
 - Google Chrome。
 - 一份独立的 MediaCrawler 源码及其可用的 Python 环境。
-- DeepSeek Harness，并确保可以使用 `@deepseek-ai/dsh-mcp-client`。
+- DeepSeek Harness。下方命令通过 `npx` 固定使用已测试的 `0.1.0-rc.6`。
 
 本项目不会内置 MediaCrawler 或它的浏览器依赖。
 
-### 2. 安装适配器
+### 2. 安装 Python MCP 运行时
 
-以下示例使用 PowerShell：
+请为适配器使用独立虚拟环境。PowerShell：
 
 ```powershell
-git clone https://github.com/xwh-01/dsh-mediacrawler.git
-cd dsh-mediacrawler
-python -m venv .venv
-.\.venv\Scripts\python -m pip install --upgrade pip
-.\.venv\Scripts\python -m pip install .
-$env:Path = "$(Resolve-Path .\.venv\Scripts);$env:Path"
+$adapterVenv = Join-Path $HOME '.dsh\runtimes\dsh-mediacrawler'
+python -m venv $adapterVenv
+$env:DSH_MEDIACRAWLER_PYTHON = Join-Path $adapterVenv 'Scripts\python.exe'
+& $env:DSH_MEDIACRAWLER_PYTHON -m pip install --upgrade pip
+& $env:DSH_MEDIACRAWLER_PYTHON -m pip install "dsh-mediacrawler @ git+https://github.com/xwh-01/dsh-mediacrawler.git@v0.1.0"
 ```
 
-POSIX 系统请改用 `./.venv/bin/python`，并把 `./.venv/bin` 加入 `PATH`。
+POSIX 系统：
 
-### 3. 配置并启动 DSH
+```sh
+python3 -m venv "$HOME/.dsh/runtimes/dsh-mediacrawler"
+export DSH_MEDIACRAWLER_PYTHON="$HOME/.dsh/runtimes/dsh-mediacrawler/bin/python"
+"$DSH_MEDIACRAWLER_PYTHON" -m pip install --upgrade pip
+"$DSH_MEDIACRAWLER_PYTHON" -m pip install "dsh-mediacrawler @ git+https://github.com/xwh-01/dsh-mediacrawler.git@v0.1.0"
+```
 
-请在启动 DSH 的同一个终端中设置路径：
+### 3. 安装 DSH profile bundle
+
+DSH 会把 profile 包管理交给 `pnpm`。如有需要请先安装一次，然后加入固定版本的 bundle：
+
+```powershell
+npm install --global pnpm@11
+npx --yes @deepseek-ai/dsh@0.1.0-rc.6 plugin --profile web add "github:xwh-01/dsh-mediacrawler#v0.1.0"
+npx --yes @deepseek-ai/dsh@0.1.0-rc.6 --profile web --dump-config
+```
+
+配置输出中应出现 `# == dsh-mediacrawler` 层。bundle 会同时挂载 MCP 客户端和随包提供的 `mediacrawler-collector` Skill，不要求从本仓库目录启动 DSH。
+
+### 4. 配置并启动 DSH
+
+请在启动 DSH 的同一个终端中设置路径。新开终端时，也要恢复第 2 步中的 `DSH_MEDIACRAWLER_PYTHON`：
 
 ```powershell
 $env:MEDIACRAWLER_ROOT = 'D:\path\to\MediaCrawler'
@@ -49,13 +69,18 @@ $env:MEDIACRAWLER_PYTHON = 'D:\path\to\MediaCrawler\.venv\Scripts\python.exe'
 # 可选；默认位置为 ~/.dsh-mediacrawler
 $env:DSH_MEDIACRAWLER_STATE_DIR = 'D:\path\to\adapter-state'
 
-Get-Command dsh-mediacrawler-mcp
-npx --yes @deepseek-ai/dsh web --patch .\cordis.patch.yml
+npx --yes @deepseek-ai/dsh@0.1.0-rc.6 --profile web
 ```
 
-仓库内的 `.dsh/skills/mediacrawler-collector` Skill 会引导 Agent 检查环境、启动小范围任务、轮询状态并导出结果。第一次使用时，让 Agent 调用 `check(deep=true)`。
+随包提供的 Skill 会引导 Agent 检查环境、启动小范围任务、轮询状态并导出结果。第一次使用时，让 Agent 调用 `check(deep=true)`。
 
-`.env.example` 只是一份变量参考。本项目不会自动加载 dotenv 文件，变量必须存在于 DSH 进程的环境中。
+`.env.example` 只是一份变量参考。本项目不会自动加载 dotenv 文件，且当前 DSH 会把 `DSH_*` 变量视为启动配置；这些变量必须导出到 DSH 进程环境中。
+
+卸载 profile bundle：
+
+```powershell
+npx --yes @deepseek-ai/dsh@0.1.0-rc.6 plugin --profile web remove dsh-mediacrawler
+```
 
 ## MCP 工具
 
@@ -102,15 +127,23 @@ npx --yes @deepseek-ai/dsh web --patch .\cordis.patch.yml
 .\.venv\Scripts\python -m ruff format --check .
 .\.venv\Scripts\python -m ruff check .
 .\.venv\Scripts\python -m pytest
+node --test tests-node/*.test.js
 python -m build
 npm pack --dry-run
 ```
 
-CI 会在 Linux 和 Windows 上执行测试及打包检查。MCP 协议测试会通过真实 stdio 启动控制台入口，而不是只在进程内调用服务。
+CI 会在 Linux 和 Windows 上执行 Python 测试、验证随包 Skill provider、把 bundle 安装进全新的 DSH profile，并启动真实的 MCP stdio 入口。
 
 ## 兼容性
 
-DeepSeek Harness 仍处于开发者预览阶段，可能出现破坏性更新。本适配器面向当前 Harness 仓库使用的 MCP 客户端和 Cordis 补丁格式。
+DeepSeek Harness 仍处于开发者预览阶段，可能出现破坏性更新。`v0.1.0` 已测试：
+
+- `@deepseek-ai/dsh` `0.1.0-rc.6`。
+- Node.js 22.x 系列中的 22.19+，以及 Node.js 24+。
+- Python 3.11 和 3.13。
+- MediaCrawler 上游提交 [`5665a27`](https://github.com/NanmiCoder/MediaCrawler/commit/5665a271ef15e0ec82b1f48a951b66760e054db9) 对应的命令接口。
+
+升级 DSH 或 MediaCrawler 后请运行 `check(deep=true)`；它会在采集前验证本地环境。
 
 ## 许可证
 

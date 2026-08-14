@@ -1,10 +1,11 @@
 # dsh-mediacrawler
 
 [![CI](https://github.com/xwh-01/dsh-mediacrawler/actions/workflows/ci.yml/badge.svg)](https://github.com/xwh-01/dsh-mediacrawler/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/xwh-01/dsh-mediacrawler)](https://github.com/xwh-01/dsh-mediacrawler/releases/latest)
 
 [English](./README.md) | [中文](./README.zh.md)
 
-A bounded stdio MCP adapter that connects [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) to a separately installed [MediaCrawler](https://github.com/NanmiCoder/MediaCrawler) checkout.
+An installable profile bundle and bounded stdio MCP adapter that connects [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) to a separately installed [MediaCrawler](https://github.com/NanmiCoder/MediaCrawler) checkout.
 
 It supports search, post/video detail, creator feeds, and optional comments on Xiaohongshu, Douyin, Kuaishou, Bilibili, Weibo, Tieba, and Zhihu. Each run is supervised, persisted, and exposed through eight MCP tools.
 
@@ -17,30 +18,49 @@ It supports search, post/video detail, creator feeds, and optional comments on X
 Install the following first:
 
 - Python 3.11 or newer.
+- Node.js 22.19+ on the 22.x line, or Node.js 24+, with `pnpm` on `PATH`.
 - Google Chrome.
 - A separate MediaCrawler checkout with its own working Python environment.
-- DeepSeek Harness with `@deepseek-ai/dsh-mcp-client` available.
+- DeepSeek Harness. The commands below pin the tested `0.1.0-rc.6` release through `npx`.
 
 MediaCrawler and its browser dependencies are intentionally not vendored here.
 
-### 2. Install the adapter
+### 2. Install the Python MCP runtime
 
-The commands below use PowerShell:
+Keep the adapter in its own virtual environment. In PowerShell:
 
 ```powershell
-git clone https://github.com/xwh-01/dsh-mediacrawler.git
-cd dsh-mediacrawler
-python -m venv .venv
-.\.venv\Scripts\python -m pip install --upgrade pip
-.\.venv\Scripts\python -m pip install .
-$env:Path = "$(Resolve-Path .\.venv\Scripts);$env:Path"
+$adapterVenv = Join-Path $HOME '.dsh\runtimes\dsh-mediacrawler'
+python -m venv $adapterVenv
+$env:DSH_MEDIACRAWLER_PYTHON = Join-Path $adapterVenv 'Scripts\python.exe'
+& $env:DSH_MEDIACRAWLER_PYTHON -m pip install --upgrade pip
+& $env:DSH_MEDIACRAWLER_PYTHON -m pip install "dsh-mediacrawler @ git+https://github.com/xwh-01/dsh-mediacrawler.git@v0.1.0"
 ```
 
-On POSIX systems, use `./.venv/bin/python` and add `./.venv/bin` to `PATH` instead.
+On POSIX systems:
 
-### 3. Configure and start DSH
+```sh
+python3 -m venv "$HOME/.dsh/runtimes/dsh-mediacrawler"
+export DSH_MEDIACRAWLER_PYTHON="$HOME/.dsh/runtimes/dsh-mediacrawler/bin/python"
+"$DSH_MEDIACRAWLER_PYTHON" -m pip install --upgrade pip
+"$DSH_MEDIACRAWLER_PYTHON" -m pip install "dsh-mediacrawler @ git+https://github.com/xwh-01/dsh-mediacrawler.git@v0.1.0"
+```
 
-Export the paths in the same shell that starts DSH:
+### 3. Install the DSH profile bundle
+
+DSH delegates profile package management to `pnpm`. Install it once if needed, then add the pinned bundle release:
+
+```powershell
+npm install --global pnpm@11
+npx --yes @deepseek-ai/dsh@0.1.0-rc.6 plugin --profile web add "github:xwh-01/dsh-mediacrawler#v0.1.0"
+npx --yes @deepseek-ai/dsh@0.1.0-rc.6 --profile web --dump-config
+```
+
+The config dump should contain a `# == dsh-mediacrawler` layer. The bundle mounts both the MCP client and its packaged `mediacrawler-collector` Skill; no repository checkout needs to be the current working directory.
+
+### 4. Configure and start DSH
+
+Export the paths in the same shell that starts DSH. Also restore `DSH_MEDIACRAWLER_PYTHON` from step 2 when opening a new shell:
 
 ```powershell
 $env:MEDIACRAWLER_ROOT = 'D:\path\to\MediaCrawler'
@@ -49,13 +69,18 @@ $env:MEDIACRAWLER_PYTHON = 'D:\path\to\MediaCrawler\.venv\Scripts\python.exe'
 # Optional; defaults to ~/.dsh-mediacrawler
 $env:DSH_MEDIACRAWLER_STATE_DIR = 'D:\path\to\adapter-state'
 
-Get-Command dsh-mediacrawler-mcp
-npx --yes @deepseek-ai/dsh web --patch .\cordis.patch.yml
+npx --yes @deepseek-ai/dsh@0.1.0-rc.6 --profile web
 ```
 
-The repository-local Skill at `.dsh/skills/mediacrawler-collector` then guides the agent through checking the runtime, starting a small collection, polling status, and exporting results. On first use, ask the agent to call `check(deep=true)`.
+The packaged Skill then guides the agent through checking the runtime, starting a small collection, polling status, and exporting results. On first use, ask the agent to call `check(deep=true)`.
 
-`.env.example` is a reference only. The adapter does not load dotenv files; export the variables in the DSH process environment.
+`.env.example` is a reference only. The adapter does not load dotenv files, and current DSH releases treat `DSH_*` variables as launch settings; export these values in the DSH process environment.
+
+To uninstall the profile bundle:
+
+```powershell
+npx --yes @deepseek-ai/dsh@0.1.0-rc.6 plugin --profile web remove dsh-mediacrawler
+```
 
 ## MCP tools
 
@@ -102,15 +127,23 @@ The adapter does not bypass login, verification, rate limits, access controls, o
 .\.venv\Scripts\python -m ruff format --check .
 .\.venv\Scripts\python -m ruff check .
 .\.venv\Scripts\python -m pytest
+node --test tests-node/*.test.js
 python -m build
 npm pack --dry-run
 ```
 
-CI runs the test and packaging checks on Linux and Windows. The MCP protocol test starts the real console entry point over stdio rather than calling the server in process.
+CI runs the Python tests on Linux and Windows, verifies the packaged Skill provider, installs the bundle into a clean DSH profile, and starts its real MCP stdio entry point.
 
 ## Compatibility
 
-DeepSeek Harness is a developer preview and may make compatibility-breaking changes. This adapter targets the MCP client and Cordis patch format used by the current Harness repository.
+DeepSeek Harness is a developer preview and may make compatibility-breaking changes. Release `v0.1.0` is tested with:
+
+- `@deepseek-ai/dsh` `0.1.0-rc.6`.
+- Node.js 22.19+ on the 22.x line, and Node.js 24+.
+- Python 3.11 and 3.13.
+- The MediaCrawler command contract at upstream commit [`5665a27`](https://github.com/NanmiCoder/MediaCrawler/commit/5665a271ef15e0ec82b1f48a951b66760e054db9).
+
+Run `check(deep=true)` after changing either DSH or MediaCrawler; it validates the local checkout before collection starts.
 
 ## License
 

@@ -25,4 +25,14 @@ def test_dsh_package_includes_the_adapter_and_skill() -> None:
         "pyproject.toml",
         "src/dsh_mediacrawler/*.py",
         "cordis.patch.yml",
+        "skill-provider.js",
     } <= included
+
+
+def test_dsh_bundle_uses_a_stable_python_entrypoint() -> None:
+    patch = (PROJECT_ROOT / "cordis.patch.yml").read_text(encoding="utf-8")
+
+    assert "DSH_MEDIACRAWLER_PYTHON" in patch
+    assert "? ['-m', 'dsh_mediacrawler']" in patch
+    assert "failOnStartupError: true" in patch
+    assert "name: dsh-mediacrawler" in patch

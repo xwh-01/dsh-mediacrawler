@@ -45,8 +45,13 @@ jobs:
         run: python -m pytest
 
   package:
-    name: Package artifacts
+    name: Package / Node ${{ matrix.node-version }}
     runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        node-version: ["22.19.0", "24"]
 
     steps:
       - name: Check out repository
@@ -57,6 +62,14 @@ jobs:
         with:
           python-version: "3.13"
           cache: pip
+
+      - name: Set up Node.js
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: ${{ matrix.node-version }}
+
+      - name: Test the packaged Skill provider
+        run: node --test tests-node/*.test.js
 
       - name: Build Python distributions
         run: |
@@ -69,7 +82,55 @@ jobs:
           python -c "import importlib.metadata; assert importlib.metadata.version('dsh-mediacrawler') == '0.1.0'"
           command -v dsh-mediacrawler-mcp
 
-      - name: Inspect the DSH package
+      - name: Build and inspect the DSH package
+        id: pack
         run: |
-          npm pack --dry-run --json > npm-pack.json
-          node -e "const p=require('./npm-pack.json')[0]; const bad=p.files.filter(x=>/__pycache__|\.pyc$|egg-info/.test(x.path)); if(bad.length) throw new Error(JSON.stringify(bad));"
+          npm pack --json > npm-pack.json
+          node -e "const fs=require('node:fs'),path=require('node:path'); const p=require('./npm-pack.json')[0]; const files=new Set(p.files.map(x=>x.path)); const required=['skill-provider.js','cordis.patch.yml','.dsh/skills/mediacrawler-collector/SKILL.md']; const missing=required.filter(x=>!files.has(x)); if(![...files].some(x=>/^src\/dsh_mediacrawler\/.*\.py$/.test(x))) missing.push('src/dsh_mediacrawler/*.py'); const bad=[...files].filter(x=>/__pycache__|\.pyc$|egg-info/.test(x)); if(missing.length||bad.length) throw new Error(JSON.stringify({missing,bad})); fs.appendFileSync(process.env.GITHUB_OUTPUT, 'tarball='+path.resolve(p.filename)+'\n');"
+
+      - name: Install the bundle into a clean DSH profile
+        shell: bash
+        run: |
+          npm install --global pnpm@11.19.0
+          export DSH_HOME="$RUNNER_TEMP/dsh-home"
+          npx --yes @deepseek-ai/dsh@0.1.0-rc.6 plugin --profile web add "${{ steps.pack.outputs.tarball }}"
+          npx --yes @deepseek-ai/dsh@0.1.0-rc.6 --profile web --dump-config > "$RUNNER_TEMP/dsh-config.yml"
+          grep -F '# == dsh-mediacrawler' "$RUNNER_TEMP/dsh-config.yml"
+          grep -F 'id: skill-mediacrawler' "$RUNNER_TEMP/dsh-config.yml"
+          grep -F 'id: mcp-mediacrawler' "$RUNNER_TEMP/dsh-config.yml"
+
+      - name: Start DSH with the packaged MCP server
+        shell: bash
+        run: |
+          export DSH_HOME="$RUNNER_TEMP/dsh-home"
+          export DSH_MEDIACRAWLER_PYTHON="$(python -c 'import sys; print(sys.executable)')"
+          export MEDIACRAWLER_ROOT="$GITHUB_WORKSPACE/tests/fake_mediacrawler"
+          export MEDIACRAWLER_PYTHON="$DSH_MEDIACRAWLER_PYTHON"
+          export DSH_MEDIACRAWLER_STATE_DIR="$RUNNER_TEMP/dsh-mediacrawler-state"
+          setsid npx --yes @deepseek-ai/dsh@0.1.0-rc.6 --profile web --port 38999 > "$RUNNER_TEMP/dsh-start.log" 2>&1 &
+          dsh_pid=$!
+          cleanup() {
+            set +e
+            kill -TERM -- "-$dsh_pid" 2>/dev/null
+            for _ in {1..10}; do
+              kill -0 -- "-$dsh_pid" 2>/dev/null || break
+              sleep 1
+            done
+            kill -KILL -- "-$dsh_pid" 2>/dev/null
+            wait "$dsh_pid" 2>/dev/null
+          }
+          trap cleanup EXIT
+          ready=false
+          for _ in {1..60}; do
+            if curl --fail --silent http://127.0.0.1:38999/ > /dev/null; then
+              ready=true
+              break
+            fi
+            if ! kill -0 "$dsh_pid" 2>/dev/null; then
+              break
+            fi
+            sleep 1
+          done
+          cat "$RUNNER_TEMP/dsh-start.log"
+          test "$ready" = true
+          grep -F 'dsh web: http://127.0.0.1:38999' "$RUNNER_TEMP/dsh-start.log"

@@ -1,8 +1,9 @@
 {
   "name": "dsh-mediacrawler",
   "version": "0.1.0",
-  "description": "DeepSeek Harness MCP adapter for a separately installed MediaCrawler checkout",
+  "description": "Installable DeepSeek Harness profile bundle for a separately installed MediaCrawler checkout",
   "type": "module",
+  "main": "./skill-provider.js",
   "license": "MIT",
   "author": "xwh-01",
   "repository": {
@@ -17,6 +18,7 @@
     ".dsh",
     ".env.example",
     "cordis.patch.yml",
+    "skill-provider.js",
     "README.md",
     "README.zh.md",
     "LICENSE",
@@ -24,11 +26,15 @@
     "src/dsh_mediacrawler/*.py"
   ],
   "keywords": [
+    "dsh",
     "dsh-plugin",
     "deepseek-harness",
     "mcp",
     "mediacrawler"
   ],
+  "engines": {
+    "node": "^22.19.0 || >=24.0.0"
+  },
   "dsh": {
     "bundle": {
       "patch": "./cordis.patch.yml"
