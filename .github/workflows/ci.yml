@@ -107,44 +107,15 @@ jobs:
           export MEDIACRAWLER_ROOT="$GITHUB_WORKSPACE/tests/fake_mediacrawler"
           export MEDIACRAWLER_PYTHON="$DSH_MEDIACRAWLER_PYTHON"
           export DSH_MEDIACRAWLER_STATE_DIR="$RUNNER_TEMP/dsh-mediacrawler-state"
-          pid_file="$RUNNER_TEMP/dsh-start.pid"
-          setsid --fork --wait bash -c 'echo "$$" > "$1"; shift; exec "$@"' \
-            _ "$pid_file" npx --yes @deepseek-ai/dsh@0.1.0-rc.6 --profile web --port 38999 \
-            > "$RUNNER_TEMP/dsh-start.log" 2>&1 &
-          launcher_pid=$!
-          cleanup() {
-            set +e
-            if test -s "$pid_file"; then
-              dsh_pid="$(cat "$pid_file")"
-              kill -TERM -- "-$dsh_pid" 2>/dev/null
-              for _ in {1..10}; do
-                kill -0 -- "-$dsh_pid" 2>/dev/null || break
-                sleep 1
-              done
-              kill -KILL -- "-$dsh_pid" 2>/dev/null
-            else
-              kill -TERM "$launcher_pid" 2>/dev/null
-            fi
-            wait "$launcher_pid" 2>/dev/null
-          }
-          trap cleanup EXIT
-          for _ in {1..25}; do
-            test -s "$pid_file" && break
-            kill -0 "$launcher_pid" 2>/dev/null || break
-            sleep 0.2
-          done
-          test -s "$pid_file"
-          ready=false
-          for _ in {1..60}; do
-            if curl --fail --silent http://127.0.0.1:38999/ > /dev/null; then
-              ready=true
-              break
-            fi
-            if ! kill -0 "$launcher_pid" 2>/dev/null; then
-              break
-            fi
-            sleep 1
-          done
+          set +e
+          timeout --kill-after=10s --signal=TERM 60s \
+            npx --yes @deepseek-ai/dsh@0.1.0-rc.6 --profile web --port 38999 \
+            > "$RUNNER_TEMP/dsh-start.log" 2>&1
+          status=$?
+          set -e
           cat "$RUNNER_TEMP/dsh-start.log"
-          test "$ready" = true
+          case "$status" in
+            124|137) ;;
+            *) echo "DSH exited before the smoke-test deadline (status $status)" >&2; exit 1 ;;
+          esac
           grep -F 'dsh web: http://127.0.0.1:38999' "$RUNNER_TEMP/dsh-start.log"
