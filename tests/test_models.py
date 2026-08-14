@@ -88,3 +88,7 @@ def test_request_fingerprint_ignores_request_id() -> None:
 
 def test_isolated_browser_is_the_default() -> None:
     assert request().browser_mode == "isolated"
+
+
+def test_comments_require_explicit_opt_in() -> None:
+    assert request().include_comments is False

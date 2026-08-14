@@ -36,6 +36,8 @@ async def test_module_entrypoint_serves_tools_over_real_stdio(
         "status",
         "runs",
         "result",
+        "delete_run",
+        "cleanup",
         "stop",
         "logs",
         "artifacts",

@@ -70,7 +70,7 @@ def create_server(service: CrawlerService | None = None) -> MCPServer:
         targets: list[str] | None = None,
         login_type: str = "qrcode",
         max_items: int = 20,
-        include_comments: bool = True,
+        include_comments: bool = False,
         include_nested_comments: bool = False,
         max_comments_per_item: int = 50,
         headless: bool = False,
@@ -119,6 +119,25 @@ def create_server(service: CrawlerService | None = None) -> MCPServer:
         return await call("result", run_id, record_type=record_type, limit=limit)
 
     @server.tool()
+    async def delete_run(run_id: str, confirm: bool = False) -> dict[str, Any]:
+        """Permanently delete one completed run after explicit confirmation."""
+        return await call("delete_run", run_id, confirm=confirm)
+
+    @server.tool()
+    async def cleanup(
+        older_than_days: int = 30,
+        keep_latest: int = 20,
+        dry_run: bool = True,
+    ) -> dict[str, Any]:
+        """Preview or delete completed runs outside a bounded retention window."""
+        return await call(
+            "cleanup",
+            older_than_days=older_than_days,
+            keep_latest=keep_latest,
+            dry_run=dry_run,
+        )
+
+    @server.tool()
     async def stop(run_id: str) -> dict[str, Any]:
         """Idempotently stop a running crawler process tree."""
         return await call("stop", run_id)
@@ -137,12 +156,12 @@ def create_server(service: CrawlerService | None = None) -> MCPServer:
     async def preview(
         run_id: str, artifact_id: str, offset: int = 0, limit: int = 10
     ) -> dict[str, Any]:
-        """Preview sanitized JSONL records without accepting arbitrary file paths."""
+        """Preview credential-redacted JSONL without accepting arbitrary file paths."""
         return await call("preview", run_id, artifact_id, offset=offset, limit=limit)
 
     @server.tool()
     async def export(run_id: str) -> dict[str, Any]:
-        """Create a sanitized ZIP containing the run manifest and JSONL artifacts."""
+        """Create a credential-redacted, non-anonymized ZIP of run artifacts."""
         return await call("export", run_id)
 
     return server

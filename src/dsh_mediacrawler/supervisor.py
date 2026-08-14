@@ -8,13 +8,13 @@ import shutil
 import subprocess
 import tempfile
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
 import psutil
 
-from .artifacts import discover, export_zip
+from .artifacts import ArtifactIndex, export_zip
 from .artifacts import preview as preview_artifact
 from .errors import AdapterError
 from .lock import InterProcessLease
@@ -92,6 +92,7 @@ class CrawlerService:
         self._log_sequences: dict[str, int] = {}
         self._leases: dict[str, InterProcessLease] = {}
         self._export_locks: dict[str, asyncio.Lock] = {}
+        self.artifact_index = ArtifactIndex()
 
     def _base_readiness(self) -> tuple[bool, list[str]]:
         issues: list[str] = []
@@ -148,6 +149,7 @@ class CrawlerService:
             if self.settings.mediacrawler_root
             else None,
             "state_dir": str(self.settings.state_dir),
+            "max_export_bytes": self.settings.max_export_bytes,
             "runner": runner_kind,
             "runner_available": command_available,
             "issues": issues,
@@ -662,7 +664,9 @@ class CrawlerService:
             if log_task:
                 await log_task
             current = self.store.load(run_id)
-            artifacts = await asyncio.to_thread(discover, self.store.data_dir(run_id))
+            artifacts = await asyncio.to_thread(
+                self.artifact_index.discover, self.store.data_dir(run_id)
+            )
             record_count = sum(int(item["records"]) for item in artifacts)
             upstream_errors = await asyncio.to_thread(
                 self.store.has_upstream_errors, run_id
@@ -848,6 +852,14 @@ class CrawlerService:
         return True
 
     async def status(self, run_id: str) -> dict[str, Any]:
+        artifacts = await asyncio.to_thread(
+            self.artifact_index.discover, self.store.data_dir(run_id)
+        )
+        return await self._status_from_artifacts(run_id, artifacts)
+
+    async def _status_from_artifacts(
+        self, run_id: str, artifacts: list[dict[str, Any]]
+    ) -> dict[str, Any]:
         manifest = self.store.load(run_id)
         if manifest.get("state") in ACTIVE_STATES:
             task = self._tasks.get(run_id)
@@ -867,7 +879,6 @@ class CrawlerService:
                     finished_at=utc_now(),
                     error="The adapter restarted or the crawler process disappeared before completion.",
                 )
-        artifacts = await asyncio.to_thread(discover, self.store.data_dir(run_id))
         record_count = sum(int(item["records"]) for item in artifacts)
         record_counts: dict[str, int] = {}
         for artifact in artifacts:
@@ -931,6 +942,108 @@ class CrawlerService:
             )
         return {"ok": True, "runs": summaries, "returned": len(summaries)}
 
+    async def delete_run(self, run_id: str, confirm: bool = False) -> dict[str, Any]:
+        if not confirm:
+            raise AdapterError(
+                "CONFIRMATION_REQUIRED",
+                "Set confirm=true to permanently delete this run, its raw data, logs, and exports.",
+                run_id=run_id,
+            )
+        return await self._delete_completed_run(run_id)
+
+    async def _delete_completed_run(self, run_id: str) -> dict[str, Any]:
+        manifest = self.store.load(run_id)
+        if manifest.get("state") in ACTIVE_STATES:
+            raise AdapterError(
+                "RUN_ACTIVE",
+                "Stop the run before deleting it.",
+                retryable=True,
+                run_id=run_id,
+            )
+        lease = InterProcessLease(self.store.export_lock_path(run_id))
+        if not lease.acquire():
+            raise AdapterError(
+                "EXPORT_BUSY",
+                "Wait for the run export to finish before deleting it.",
+                retryable=True,
+                run_id=run_id,
+            )
+        data_dir = self.store.data_dir(run_id)
+        try:
+            await asyncio.to_thread(self.store.delete, run_id)
+            self.artifact_index.invalidate(data_dir)
+            self._export_locks.pop(run_id, None)
+        finally:
+            lease.release()
+        return {
+            "ok": True,
+            "run_id": run_id,
+            "deleted": True,
+            "browser_profiles_deleted": False,
+        }
+
+    async def cleanup(
+        self,
+        older_than_days: int = 30,
+        keep_latest: int = 20,
+        dry_run: bool = True,
+    ) -> dict[str, Any]:
+        if not 1 <= older_than_days <= 3650:
+            raise AdapterError(
+                "INVALID_REQUEST", "older_than_days must be between 1 and 3650."
+            )
+        if not 0 <= keep_latest <= 1000:
+            raise AdapterError(
+                "INVALID_REQUEST", "keep_latest must be between 0 and 1000."
+            )
+        manifests = await asyncio.to_thread(self.store.all_manifests)
+        cutoff = datetime.now(UTC) - timedelta(days=older_than_days)
+        candidates: list[dict[str, Any]] = []
+        for manifest in manifests[keep_latest:]:
+            if manifest.get("state") in ACTIVE_STATES:
+                continue
+            timestamp = (
+                manifest.get("finished_at")
+                or manifest.get("updated_at")
+                or manifest.get("created_at")
+            )
+            try:
+                age_time = datetime.fromisoformat(str(timestamp))
+            except (TypeError, ValueError):
+                continue
+            if age_time.tzinfo is None:
+                continue
+            if age_time >= cutoff:
+                continue
+            candidates.append(
+                {
+                    "run_id": manifest["run_id"],
+                    "outcome": manifest.get("outcome"),
+                    "finished_at": manifest.get("finished_at"),
+                }
+            )
+
+        deleted: list[str] = []
+        skipped: list[dict[str, str]] = []
+        if not dry_run:
+            for candidate in candidates:
+                run_id = str(candidate["run_id"])
+                try:
+                    await self._delete_completed_run(run_id)
+                    deleted.append(run_id)
+                except AdapterError as exc:
+                    skipped.append({"run_id": run_id, "code": exc.code})
+        return {
+            "ok": True,
+            "dry_run": dry_run,
+            "older_than_days": older_than_days,
+            "keep_latest": keep_latest,
+            "candidates": candidates,
+            "deleted": deleted,
+            "skipped": skipped,
+            "browser_profiles_deleted": False,
+        }
+
     async def result(
         self, run_id: str, record_type: str | None = None, limit: int = 5
     ) -> dict[str, Any]:
@@ -950,8 +1063,10 @@ class CrawlerService:
                     "record_type must be contents, comments, creators, contacts, or dynamics.",
                 )
 
-        run_status = await self.status(run_id)
-        artifact_list = await asyncio.to_thread(discover, self.store.data_dir(run_id))
+        artifact_list = await asyncio.to_thread(
+            self.artifact_index.discover, self.store.data_dir(run_id)
+        )
+        run_status = await self._status_from_artifacts(run_id, artifact_list)
         candidates = [
             artifact
             for artifact in artifact_list
@@ -976,11 +1091,15 @@ class CrawlerService:
                 selected["artifact_id"],
                 0,
                 limit,
+                artifacts=artifact_list,
             )
         return {
             **run_status,
             "artifacts": artifact_list,
-            "selected_record_type": record_type,
+            "requested_record_type": record_type,
+            "selected_record_type": (
+                selected["record_type"] if selected is not None else None
+            ),
             "sample": sample,
         }
 
@@ -1069,7 +1188,9 @@ class CrawlerService:
         return {
             "ok": True,
             "run_id": run_id,
-            "artifacts": await asyncio.to_thread(discover, self.store.data_dir(run_id)),
+            "artifacts": await asyncio.to_thread(
+                self.artifact_index.discover, self.store.data_dir(run_id)
+            ),
         }
 
     async def preview(
@@ -1086,6 +1207,7 @@ class CrawlerService:
             artifact_id,
             offset,
             limit,
+            index=self.artifact_index,
         )
         return {"ok": True, "run_id": run_id, **result}
 
@@ -1098,11 +1220,35 @@ class CrawlerService:
                 retryable=True,
                 run_id=run_id,
             )
+        artifacts = await asyncio.to_thread(
+            self.artifact_index.discover, self.store.data_dir(run_id)
+        )
         export_lock = self._export_locks.setdefault(run_id, asyncio.Lock())
         async with export_lock:
-            result = await asyncio.to_thread(
-                export_zip, self.store.run_dir(run_id), manifest
+            lease = InterProcessLease(self.store.export_lock_path(run_id))
+            if not lease.acquire():
+                raise AdapterError(
+                    "EXPORT_BUSY",
+                    "Another adapter process is exporting this run.",
+                    retryable=True,
+                    run_id=run_id,
+                )
+            worker = asyncio.create_task(
+                asyncio.to_thread(
+                    export_zip,
+                    self.store.run_dir(run_id),
+                    manifest,
+                    artifacts,
+                    self.settings.max_export_bytes,
+                )
             )
+            try:
+                result = await asyncio.shield(worker)
+            except asyncio.CancelledError:
+                await asyncio.gather(worker, return_exceptions=True)
+                raise
+            finally:
+                lease.release()
         return {"ok": True, "run_id": run_id, "export": result}
 
     async def shutdown(self) -> None:

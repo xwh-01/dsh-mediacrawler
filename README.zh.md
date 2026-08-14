@@ -7,7 +7,7 @@
 
 一个可安装的 profile bundle 和有明确范围限制的 stdio MCP 适配器，用于把 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 接到用户单独安装的 [MediaCrawler](https://github.com/NanmiCoder/MediaCrawler)。
 
-支持小红书、抖音、快手、B 站、微博、贴吧和知乎的搜索、帖子或视频详情、创作者主页，以及按需采集评论。每次任务都会受到进程监督、持久化记录，并通过 10 个 MCP 工具交给 Agent 使用。
+支持小红书、抖音、快手、B 站、微博、贴吧和知乎的搜索、帖子或视频详情、创作者主页，以及显式启用的评论采集。每次任务都会受到进程监督、持久化记录，并通过 12 个 MCP 工具交给 Agent 使用。
 
 > 本项目只是适配器，不是 MediaCrawler 的分叉；它不会复制或修改 MediaCrawler 源码，也不会改变 MediaCrawler 的许可证。
 
@@ -34,7 +34,7 @@ $adapterVenv = Join-Path $HOME '.dsh\runtimes\dsh-mediacrawler'
 python -m venv $adapterVenv
 $env:DSH_MEDIACRAWLER_PYTHON = Join-Path $adapterVenv 'Scripts\python.exe'
 & $env:DSH_MEDIACRAWLER_PYTHON -m pip install --upgrade pip
-& $env:DSH_MEDIACRAWLER_PYTHON -m pip install "dsh-mediacrawler @ git+https://github.com/xwh-01/dsh-mediacrawler.git@v0.2.0"
+& $env:DSH_MEDIACRAWLER_PYTHON -m pip install "dsh-mediacrawler @ git+https://github.com/xwh-01/dsh-mediacrawler.git@v0.3.0"
 ```
 
 POSIX 系统：
@@ -43,7 +43,7 @@ POSIX 系统：
 python3 -m venv "$HOME/.dsh/runtimes/dsh-mediacrawler"
 export DSH_MEDIACRAWLER_PYTHON="$HOME/.dsh/runtimes/dsh-mediacrawler/bin/python"
 "$DSH_MEDIACRAWLER_PYTHON" -m pip install --upgrade pip
-"$DSH_MEDIACRAWLER_PYTHON" -m pip install "dsh-mediacrawler @ git+https://github.com/xwh-01/dsh-mediacrawler.git@v0.2.0"
+"$DSH_MEDIACRAWLER_PYTHON" -m pip install "dsh-mediacrawler @ git+https://github.com/xwh-01/dsh-mediacrawler.git@v0.3.0"
 ```
 
 ### 3. 安装 DSH profile bundle
@@ -52,7 +52,7 @@ DSH 会把 profile 包管理交给 `pnpm`。如有需要请先安装一次，然
 
 ```powershell
 npm install --global pnpm@11
-npx --yes @deepseek-ai/dsh@0.1.0-rc.6 plugin --profile web add "github:xwh-01/dsh-mediacrawler#v0.2.0"
+npx --yes @deepseek-ai/dsh@0.1.0-rc.6 plugin --profile web add "github:xwh-01/dsh-mediacrawler#v0.3.0"
 npx --yes @deepseek-ai/dsh@0.1.0-rc.6 --profile web --dump-config
 ```
 
@@ -93,11 +93,13 @@ npx --yes @deepseek-ai/dsh@0.1.0-rc.6 plugin --profile web remove dsh-mediacrawl
 | `status` | 查询生命周期、待处理用户操作和结果数量。 |
 | `runs` | 在重启或上下文丢失后找回近期持久化任务及其 ID。 |
 | `result` | 一次读取任务状态、产物列表和有界脱敏样本。 |
+| `delete_run` | 设置 `confirm=true` 后永久删除一个已完成任务。 |
+| `cleanup` | 预览或执行按时间清理，并保留最新任务。 |
 | `stop` | 幂等地停止爬虫进程树。 |
 | `logs` | 增量读取经过脱敏的日志。 |
 | `artifacts` | 使用不透明 ID 列出带类型的 JSONL 产物。 |
 | `preview` | 有界预览经过脱敏的产物记录。 |
-| `export` | 生成脱敏 ZIP，并返回路径和校验值。 |
+| `export` | 生成凭据脱敏 ZIP，并返回路径和校验值。 |
 
 ## 运行行为
 
@@ -115,10 +117,19 @@ npx --yes @deepseek-ai/dsh@0.1.0-rc.6 plugin --profile web remove dsh-mediacrawl
 
 - 查询词和目标通过 stdin 注入，不会出现在子进程命令行中。
 - MCP 接口只允许二维码登录，不接收 Cookie、手机号或验证码。
+- 评论默认关闭，每次任务必须显式启用。
 - 出现 `status.phase=awaiting_user_login` 时，Agent 应提示用户扫码，并继续轮询同一个 `run_id`。
 - 最终结果会区分 `data_available`、`no_data`、`failed`、`cancelled`、`timed_out` 和 `orphaned`。
 - 产物会报告 `collection_mode`、`record_type`、无效行和记录数量。
-- 原始 JSONL 可能包含平台令牌；日志、预览、任务清单和 ZIP 导出会脱敏，对外应分享脱敏 ZIP，而不是原始任务目录。
+- 原始 JSONL 可能包含平台凭据；日志、预览、任务清单和 ZIP 导出会处理已知凭据字段及 URL 参数。
+- 凭据脱敏不等于个人信息匿名化。导出的帖子、主页和评论仍可能包含姓名、手机号、邮箱、位置等个人信息；导出结果会明确返回 `pii_anonymized=false` 和 `safe_to_share=false`。
+- 产物数量使用增量索引；未变化的 JSONL 不会在每次状态轮询时重新解析。
+
+### 导出与保留策略
+
+凭据脱敏 ZIP 默认最多接受 256 MiB 原始任务数据。可通过 `DSH_MEDIACRAWLER_MAX_EXPORT_MIB` 显式设置 1 到 4096 MiB。导出被取消后仍会持有锁直到后台写入真正结束，多个适配器进程也不能同时导出同一任务。
+
+`delete_run` 必须设置 `confirm=true`。`cleanup` 默认 `dry_run=true`，检查候选任务后才应设置 `dry_run=false`。两者都会拒绝活动任务，也都不会删除持久化浏览器资料目录及其中的登录状态。
 
 ### 采集边界
 
@@ -142,7 +153,7 @@ CI 会在 Linux 和 Windows 上执行 Python 测试、验证随包 Skill provide
 
 ## 兼容性
 
-DeepSeek Harness 仍处于开发者预览阶段，可能出现破坏性更新。`v0.2.0` 已测试：
+DeepSeek Harness 仍处于开发者预览阶段，可能出现破坏性更新。`v0.3.0` 已测试：
 
 - `@deepseek-ai/dsh` `0.1.0-rc.6`。
 - Node.js 22.x 系列中的 22.19+，以及 Node.js 24+。

@@ -5,12 +5,15 @@ from typing import Any
 
 REDACTED = "[REDACTED]"
 _SENSITIVE_KEYS = {
+    "abogus",
     "accesstoken",
     "authorization",
     "clientsecret",
     "cookie",
     "cookies",
     "idtoken",
+    "mstoken",
+    "odintt",
     "password",
     "passwd",
     "refreshtoken",
@@ -19,23 +22,53 @@ _SENSITIVE_KEYS = {
     "session",
     "sessionid",
     "signature",
+    "svwebid",
     "token",
     "xsectoken",
+    "ttwid",
+    "verifyfp",
+    "verifyuuid",
+    "webid",
+    "xbogus",
     "apikey",
     "appkey",
 }
+_SENSITIVE_PARAMETER_NAMES = (
+    "a_bogus",
+    "access_token",
+    "api_key",
+    "authorization",
+    "client_secret",
+    "id_token",
+    "msToken",
+    "odin_tt",
+    "refresh_token",
+    "s_v_web_id",
+    "session_id",
+    "signature",
+    "token",
+    "ttwid",
+    "verifyFp",
+    "verifyUuid",
+    "webid",
+    "X-Bogus",
+    "xsec_token",
+)
+_SENSITIVE_PARAMETER_PATTERN = "|".join(
+    sorted(
+        (re.escape(name) for name in _SENSITIVE_PARAMETER_NAMES), key=len, reverse=True
+    )
+)
 _TEXT_PATTERNS = (
     re.compile(r"(?im)(\b(?:authorization|set-cookie|cookie)\s*:\s*)[^\r\n]*"),
     re.compile(
-        r"""(?i)(["'](?:access_token|authorization|client_secret|cookies?|id_token|password|passwd|refresh_token|secret(?:_key)?|session(?:_id)?|signature|token|xsec_token|api_key|app_key)["']\s*:\s*["'])(.*?)(["'])"""
+        rf"""(?i)(["'](?:{_SENSITIVE_PARAMETER_PATTERN}|cookies?|password|passwd|secret(?:_key)?|session)["']\s*:\s*["'])(.*?)(["'])"""
     ),
     re.compile(r"(?i)(\b(?:authorization|cookies?)\b\s*=\s*)[^\r\n]*"),
     re.compile(
-        r"(?i)(\b(?:access_token|authorization|client_secret|id_token|password|passwd|refresh_token|secret(?:_key)?|session(?:_id)?|signature|token|xsec_token|api_key|app_key)\b\s*[:=]\s*)([^\s,;&]+)"
+        rf"(?i)(\b(?:{_SENSITIVE_PARAMETER_PATTERN}|password|passwd|secret(?:_key)?|session)\b\s*[:=]\s*)([^\s,;&#]+)"
     ),
-    re.compile(
-        r"(?i)([?&](?:access_token|id_token|refresh_token|session_id|xsec_token|token|signature|api_key)=)([^&#\s]+)"
-    ),
+    re.compile(rf"(?i)([?&](?:{_SENSITIVE_PARAMETER_PATTERN})=)([^&#\s]+)"),
     re.compile(r"(?i)(\bBearer\s+)([A-Za-z0-9._~+/=-]+)"),
 )
 

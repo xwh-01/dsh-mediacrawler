@@ -79,7 +79,7 @@ jobs:
       - name: Smoke-test the wheel
         run: |
           python -m pip install --force-reinstall dist/*.whl
-          python -c "import importlib.metadata; assert importlib.metadata.version('dsh-mediacrawler') == '0.2.0'"
+          python -c "import importlib.metadata; assert importlib.metadata.version('dsh-mediacrawler') == '0.3.0'"
           command -v dsh-mediacrawler-mcp
 
       - name: Build and inspect the DSH package

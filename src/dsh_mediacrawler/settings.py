@@ -6,6 +6,8 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
+DEFAULT_MAX_EXPORT_BYTES = 256 * 1024 * 1024
+
 
 @dataclass(frozen=True, slots=True)
 class Runner:
@@ -18,6 +20,7 @@ class Settings:
     mediacrawler_root: Path | None
     state_dir: Path
     python_executable: Path | None = None
+    max_export_bytes: int = DEFAULT_MAX_EXPORT_BYTES
 
     @classmethod
     def from_env(cls, project_root: Path | None = None) -> Settings:
@@ -48,7 +51,25 @@ class Settings:
             if python_value
             else None
         )
-        return cls(root, state_dir, python_executable)
+        max_export_value = os.environ.get(
+            "DSH_MEDIACRAWLER_MAX_EXPORT_MIB", "256"
+        ).strip()
+        try:
+            max_export_mib = int(max_export_value)
+        except ValueError as exc:
+            raise ValueError(
+                "DSH_MEDIACRAWLER_MAX_EXPORT_MIB must be an integer."
+            ) from exc
+        if not 1 <= max_export_mib <= 4096:
+            raise ValueError(
+                "DSH_MEDIACRAWLER_MAX_EXPORT_MIB must be between 1 and 4096."
+            )
+        return cls(
+            root,
+            state_dir,
+            python_executable,
+            max_export_bytes=max_export_mib * 1024 * 1024,
+        )
 
     @property
     def main_file(self) -> Path | None:

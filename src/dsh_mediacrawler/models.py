@@ -62,7 +62,7 @@ class CollectRequest:
         targets: Iterable[str] | None = None,
         login_type: str = "qrcode",
         max_items: int = 20,
-        include_comments: bool = True,
+        include_comments: bool = False,
         include_nested_comments: bool = False,
         max_comments_per_item: int = 50,
         headless: bool = False,

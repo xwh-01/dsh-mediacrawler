@@ -7,7 +7,7 @@
 
 An installable profile bundle and bounded stdio MCP adapter that connects [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) to a separately installed [MediaCrawler](https://github.com/NanmiCoder/MediaCrawler) checkout.
 
-It supports search, post/video detail, creator feeds, and optional comments on Xiaohongshu, Douyin, Kuaishou, Bilibili, Weibo, Tieba, and Zhihu. Each run is supervised, persisted, and exposed through ten MCP tools.
+It supports search, post/video detail, creator feeds, and explicitly enabled comments on Xiaohongshu, Douyin, Kuaishou, Bilibili, Weibo, Tieba, and Zhihu. Each run is supervised, persisted, and exposed through twelve MCP tools.
 
 > This is an adapter, not a MediaCrawler fork. It does not copy or modify MediaCrawler source code, and it does not change MediaCrawler's license.
 
@@ -34,7 +34,7 @@ $adapterVenv = Join-Path $HOME '.dsh\runtimes\dsh-mediacrawler'
 python -m venv $adapterVenv
 $env:DSH_MEDIACRAWLER_PYTHON = Join-Path $adapterVenv 'Scripts\python.exe'
 & $env:DSH_MEDIACRAWLER_PYTHON -m pip install --upgrade pip
-& $env:DSH_MEDIACRAWLER_PYTHON -m pip install "dsh-mediacrawler @ git+https://github.com/xwh-01/dsh-mediacrawler.git@v0.2.0"
+& $env:DSH_MEDIACRAWLER_PYTHON -m pip install "dsh-mediacrawler @ git+https://github.com/xwh-01/dsh-mediacrawler.git@v0.3.0"
 ```
 
 On POSIX systems:
@@ -43,7 +43,7 @@ On POSIX systems:
 python3 -m venv "$HOME/.dsh/runtimes/dsh-mediacrawler"
 export DSH_MEDIACRAWLER_PYTHON="$HOME/.dsh/runtimes/dsh-mediacrawler/bin/python"
 "$DSH_MEDIACRAWLER_PYTHON" -m pip install --upgrade pip
-"$DSH_MEDIACRAWLER_PYTHON" -m pip install "dsh-mediacrawler @ git+https://github.com/xwh-01/dsh-mediacrawler.git@v0.2.0"
+"$DSH_MEDIACRAWLER_PYTHON" -m pip install "dsh-mediacrawler @ git+https://github.com/xwh-01/dsh-mediacrawler.git@v0.3.0"
 ```
 
 ### 3. Install the DSH profile bundle
@@ -52,7 +52,7 @@ DSH delegates profile package management to `pnpm`. Install it once if needed, t
 
 ```powershell
 npm install --global pnpm@11
-npx --yes @deepseek-ai/dsh@0.1.0-rc.6 plugin --profile web add "github:xwh-01/dsh-mediacrawler#v0.2.0"
+npx --yes @deepseek-ai/dsh@0.1.0-rc.6 plugin --profile web add "github:xwh-01/dsh-mediacrawler#v0.3.0"
 npx --yes @deepseek-ai/dsh@0.1.0-rc.6 --profile web --dump-config
 ```
 
@@ -93,11 +93,13 @@ DeepSeek Harness exposes these as `mcp__mediacrawler__<tool>`:
 | `status` | Read lifecycle state, required user attention, and result counts. |
 | `runs` | Recover recent durable runs and their IDs after a restart or context loss. |
 | `result` | Read status, artifacts, and a bounded redacted sample in one call. |
+| `delete_run` | Permanently delete one completed run after `confirm=true`. |
+| `cleanup` | Preview or apply age-based retention while preserving the newest runs. |
 | `stop` | Idempotently stop the crawler process tree. |
 | `logs` | Read incremental, redacted run logs. |
 | `artifacts` | List typed JSONL artifacts using opaque IDs. |
 | `preview` | Read a bounded, redacted artifact preview. |
-| `export` | Create a sanitized ZIP and return its path and checksum. |
+| `export` | Create a credential-redacted ZIP and return its path and checksum. |
 
 ## Runtime behavior
 
@@ -115,10 +117,19 @@ Use the Harness web-search providers for quick facts and already-indexed pages. 
 
 - Queries and targets are injected over stdin and do not appear in the child command line.
 - Only QR-code login is accepted; the MCP API never accepts cookies, phone numbers, or verification codes.
+- Comments are disabled by default and must be explicitly enabled for a run.
 - `status.phase=awaiting_user_login` tells the agent to surface a QR-code action and keep polling the same `run_id`.
 - Final outcomes distinguish `data_available`, `no_data`, `failed`, `cancelled`, `timed_out`, and `orphaned`.
 - Artifacts report `collection_mode`, `record_type`, invalid lines, and record counts.
-- Raw JSONL may contain platform tokens. Logs, previews, manifests, and ZIP exports are redacted; share the sanitized ZIP instead of the raw run directory.
+- Raw JSONL may contain platform credentials. Logs, previews, manifests, and ZIP exports redact known credential fields and URL parameters.
+- Credential redaction is not PII anonymization. Exported posts, profiles, and comments may still contain names, phone numbers, email addresses, locations, or other personal data; exports report `pii_anonymized=false` and `safe_to_share=false`.
+- Artifact counts are indexed incrementally, so unchanged JSONL files are not reparsed on every status poll.
+
+### Export and retention
+
+Credential-redacted ZIP export accepts at most 256 MiB of raw run data by default. Set `DSH_MEDIACRAWLER_MAX_EXPORT_MIB` to an explicit value from 1 through 4096 to change the limit. A cancelled export keeps its lock until the worker finishes, and concurrent adapter processes cannot export the same run simultaneously.
+
+`delete_run` requires `confirm=true`. `cleanup` defaults to `dry_run=true`; use `dry_run=false` only after reviewing its candidates. Both operations refuse active runs. Neither operation deletes persistent browser profiles or their login state.
 
 ### Collection limits
 
@@ -142,7 +153,7 @@ CI runs the Python tests on Linux and Windows, verifies the packaged Skill provi
 
 ## Compatibility
 
-DeepSeek Harness is a developer preview and may make compatibility-breaking changes. Release `v0.2.0` is tested with:
+DeepSeek Harness is a developer preview and may make compatibility-breaking changes. Release `v0.3.0` is tested with:
 
 - `@deepseek-ai/dsh` `0.1.0-rc.6`.
 - Node.js 22.19+ on the 22.x line, and Node.js 24+.

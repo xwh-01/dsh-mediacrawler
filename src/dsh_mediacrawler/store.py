@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import shutil
 import uuid
 from collections import deque
 from datetime import UTC, datetime
@@ -23,9 +24,12 @@ class RunStore:
     def __init__(self, state_dir: Path):
         self.state_dir = state_dir.expanduser().resolve()
         self.runs_dir = self.state_dir / "runs"
+        self.locks_dir = self.state_dir / "locks"
         self.runs_dir.mkdir(parents=True, exist_ok=True)
+        self.locks_dir.mkdir(parents=True, exist_ok=True)
         os.chmod(self.state_dir, 0o700)
         os.chmod(self.runs_dir, 0o700)
+        os.chmod(self.locks_dir, 0o700)
 
     def run_dir(self, run_id: str) -> Path:
         if not _RUN_ID.fullmatch(run_id):
@@ -40,6 +44,10 @@ class RunStore:
 
     def log_path(self, run_id: str) -> Path:
         return self.run_dir(run_id) / "logs.jsonl"
+
+    def export_lock_path(self, run_id: str) -> Path:
+        self.run_dir(run_id)
+        return self.locks_dir / f"{run_id}.export.lock"
 
     def create(self, manifest: dict[str, Any]) -> None:
         run_dir = self.run_dir(manifest["run_id"])
@@ -99,6 +107,15 @@ class RunStore:
             ),
             None,
         )
+
+    def delete(self, run_id: str) -> None:
+        self.load(run_id)
+        run_dir = self.run_dir(run_id).resolve()
+        try:
+            run_dir.relative_to(self.runs_dir.resolve())
+        except ValueError as exc:
+            raise AdapterError("RUN_NOT_FOUND", f"Run not found: {run_id!r}.") from exc
+        shutil.rmtree(run_dir)
 
     def append_log(self, run_id: str, sequence: int, message: str) -> None:
         entry = {

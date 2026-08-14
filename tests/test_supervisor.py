@@ -3,13 +3,16 @@ from __future__ import annotations
 import asyncio
 import json
 import sys
+import threading
 import zipfile
 from pathlib import Path
 
 import psutil
 import pytest
 
+import dsh_mediacrawler.supervisor as supervisor_module
 from dsh_mediacrawler.errors import AdapterError
+from dsh_mediacrawler.lock import InterProcessLease
 from dsh_mediacrawler.models import CollectRequest
 from dsh_mediacrawler.settings import Settings
 from dsh_mediacrawler.supervisor import CrawlerService
@@ -92,7 +95,10 @@ async def test_normal_run_status_artifacts_preview_and_export(
     exported = await service.export(run_id)
     export_path = Path(exported["export"]["path"])
     assert export_path.is_file()
-    assert exported["export"]["sanitized"] is True
+    assert exported["export"]["credential_redacted"] is True
+    assert exported["export"]["pii_anonymized"] is False
+    assert exported["export"]["safe_to_share"] is False
+    assert export_path.name.endswith(".credential-redacted.zip")
     assert len(exported["export"]["sha256"]) == 64
     with zipfile.ZipFile(export_path) as archive:
         assert "manifest.json" in archive.namelist()
@@ -370,6 +376,67 @@ async def test_export_rejects_active_run(service: CrawlerService) -> None:
 
 
 @pytest.mark.asyncio
+async def test_export_rejects_runs_over_the_source_size_limit(
+    fake_mediacrawler_root: Path, tmp_path: Path
+) -> None:
+    limited = CrawlerService(
+        Settings(
+            mediacrawler_root=fake_mediacrawler_root,
+            state_dir=tmp_path / "limited-state",
+            python_executable=Path(sys.executable),
+            max_export_bytes=1,
+        )
+    )
+    started = await limited.collect(search_request())
+    await wait_for_state(limited, started["run_id"])
+
+    with pytest.raises(AdapterError) as caught:
+        await limited.export(started["run_id"])
+
+    assert caught.value.code == "EXPORT_TOO_LARGE"
+
+
+@pytest.mark.asyncio
+async def test_cancelled_export_holds_lock_until_worker_finishes(
+    service: CrawlerService, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    started = await service.collect(search_request())
+    await wait_for_state(service, started["run_id"])
+    worker_started = threading.Event()
+    worker_release = threading.Event()
+
+    def slow_export(*_: object) -> dict[str, object]:
+        worker_started.set()
+        assert worker_release.wait(timeout=5)
+        return {"path": "unused"}
+
+    monkeypatch.setattr(supervisor_module, "export_zip", slow_export)
+    task = asyncio.create_task(service.export(started["run_id"]))
+    assert await asyncio.to_thread(worker_started.wait, 1)
+    task.cancel()
+    await asyncio.sleep(0.05)
+
+    assert not task.done()
+    worker_release.set()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+
+@pytest.mark.asyncio
+async def test_export_respects_cross_process_lease(service: CrawlerService) -> None:
+    started = await service.collect(search_request())
+    await wait_for_state(service, started["run_id"])
+    lease = InterProcessLease(service.store.export_lock_path(started["run_id"]))
+    assert lease.acquire()
+    try:
+        with pytest.raises(AdapterError) as caught:
+            await service.export(started["run_id"])
+        assert caught.value.code == "EXPORT_BUSY"
+    finally:
+        lease.release()
+
+
+@pytest.mark.asyncio
 async def test_two_service_instances_share_a_cross_process_lease(
     service: CrawlerService,
 ) -> None:
@@ -482,11 +549,20 @@ async def test_oversized_preview_record_advances_cursor(
 
 @pytest.mark.asyncio
 async def test_runs_recovers_recent_run_and_result_combines_preview(
-    service: CrawlerService,
+    service: CrawlerService, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     started = await service.collect(search_request("recoverable"))
     await wait_for_state(service, started["run_id"])
 
+    calls = 0
+    original_discover = service.artifact_index.discover
+
+    def counted_discover(data_dir: Path) -> list[dict[str, object]]:
+        nonlocal calls
+        calls += 1
+        return original_discover(data_dir)
+
+    monkeypatch.setattr(service.artifact_index, "discover", counted_discover)
     recent = await service.runs(limit=1)
     combined = await service.result(started["run_id"], limit=1)
 
@@ -495,8 +571,11 @@ async def test_runs_recovers_recent_run_and_result_combines_preview(
     assert recent["runs"][0]["query"] == "recoverable"
     assert combined["outcome"] == "data_available"
     assert combined["artifact_count"] == 1
+    assert combined["requested_record_type"] is None
+    assert combined["selected_record_type"] == "contents"
     assert combined["sample"]["returned"] == 1
     assert combined["sample"]["records"][0]["title"] == "fixture record"
+    assert calls == 1
 
 
 @pytest.mark.asyncio
@@ -513,6 +592,76 @@ async def test_result_can_select_record_type_and_validates_bounds(
         await service.result(started["run_id"], record_type="secrets")
     with pytest.raises(AdapterError, match="limit must be"):
         await service.runs(limit=0)
+
+
+@pytest.mark.asyncio
+async def test_delete_run_requires_confirmation_and_preserves_browser_profiles(
+    service: CrawlerService,
+) -> None:
+    started = await service.collect(search_request())
+    await wait_for_state(service, started["run_id"])
+
+    with pytest.raises(AdapterError) as caught:
+        await service.delete_run(started["run_id"])
+    assert caught.value.code == "CONFIRMATION_REQUIRED"
+
+    deleted = await service.delete_run(started["run_id"], confirm=True)
+
+    assert deleted["deleted"] is True
+    assert deleted["browser_profiles_deleted"] is False
+    assert not service.store.run_dir(started["run_id"]).exists()
+    assert (service.store.state_dir / "browser_profiles").is_dir()
+
+
+@pytest.mark.asyncio
+async def test_delete_run_rejects_active_run(service: CrawlerService) -> None:
+    started = await service.collect(search_request("hang-delete"))
+    await wait_for_state(service, started["run_id"], expected="running")
+    try:
+        with pytest.raises(AdapterError) as caught:
+            await service.delete_run(started["run_id"], confirm=True)
+        assert caught.value.code == "RUN_ACTIVE"
+    finally:
+        await service.stop(started["run_id"])
+
+
+@pytest.mark.asyncio
+async def test_cleanup_is_dry_run_by_default_and_deletes_only_when_requested(
+    service: CrawlerService,
+) -> None:
+    started = await service.collect(search_request())
+    await wait_for_state(service, started["run_id"])
+    service.store.update(
+        started["run_id"],
+        finished_at="2020-01-01T00:00:00Z",
+        updated_at="2020-01-01T00:00:00Z",
+    )
+
+    preview = await service.cleanup(older_than_days=30, keep_latest=0)
+    applied = await service.cleanup(older_than_days=30, keep_latest=0, dry_run=False)
+
+    assert preview["dry_run"] is True
+    assert preview["candidates"][0]["run_id"] == started["run_id"]
+    assert service.store.run_dir(started["run_id"]).exists() is False
+    assert applied["deleted"] == [started["run_id"]]
+    assert applied["browser_profiles_deleted"] is False
+
+
+@pytest.mark.asyncio
+async def test_cleanup_keep_latest_protects_recent_slots(
+    service: CrawlerService,
+) -> None:
+    started = await service.collect(search_request())
+    await wait_for_state(service, started["run_id"])
+    service.store.update(
+        started["run_id"],
+        finished_at="2020-01-01T00:00:00Z",
+        updated_at="2020-01-01T00:00:00Z",
+    )
+
+    result = await service.cleanup(older_than_days=30, keep_latest=1)
+
+    assert result["candidates"] == []
 
 
 def test_pid_creation_time_mismatch_is_never_terminated(

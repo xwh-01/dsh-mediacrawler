@@ -51,3 +51,44 @@ def test_nested_sensitive_keys_are_redacted() -> None:
     assert redact_value(value) == {
         "nested": {"refresh_token": REDACTED, "id_token": REDACTED}
     }
+
+
+def test_platform_tracking_credentials_are_redacted() -> None:
+    value = {
+        "msToken": "MS-TOKEN",
+        "a_bogus": "A-BOGUS",
+        "verifyFp": "VERIFY-FP",
+        "verifyUuid": "VERIFY-UUID",
+        "webid": "WEB-ID",
+    }
+
+    assert set(redact_value(value).values()) == {REDACTED}
+
+
+def test_platform_credentials_are_redacted_from_urls_and_text() -> None:
+    value = (
+        "https://example.test/path?msToken=MS-TOKEN&a_bogus=A-BOGUS"
+        "&verifyFp=VERIFY-FP&X-Bogus=X-BOGUS"
+    )
+
+    redacted = redact_text(value)
+
+    assert "MS-TOKEN" not in redacted
+    assert "A-BOGUS" not in redacted
+    assert "VERIFY-FP" not in redacted
+    assert "X-BOGUS" not in redacted
+
+
+def test_platform_credentials_are_redacted_from_prefixed_python_dict_logs() -> None:
+    value = "MediaCrawler ERROR - {'msToken': 'MS-TOKEN', 'a_bogus': 'A-BOGUS'}"
+
+    redacted = redact_text(value)
+
+    assert "MS-TOKEN" not in redacted
+    assert "A-BOGUS" not in redacted
+
+
+def test_pii_is_not_misrepresented_as_anonymized() -> None:
+    value = {"phone": "13800138000", "email": "user@example.com"}
+
+    assert redact_value(value) == value
